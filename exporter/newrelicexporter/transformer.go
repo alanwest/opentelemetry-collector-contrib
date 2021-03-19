@@ -31,16 +31,17 @@ import (
 )
 
 const (
-	unitAttrKey               = "unit"
-	descriptionAttrKey        = "description"
-	collectorNameKey          = "collector.name"
-	collectorVersionKey       = "collector.version"
-	instrumentationNameKey    = "instrumentation.name"
-	instrumentationVersionKey = "instrumentation.version"
-	statusCodeKey             = "otel.status_code"
-	statusDescriptionKey      = "otel.status_description"
-	spanKindKey               = "span.kind"
-	serviceNameKey            = "service.name"
+	unitAttrKey                = "unit"
+	descriptionAttrKey         = "description"
+	collectorNameKey           = "collector.name"
+	collectorVersionKey        = "collector.version"
+	instrumentationNameKey     = "instrumentation.name"
+	instrumentationVersionKey  = "instrumentation.version"
+	instrumentationLanguageKey = "telemetry.sdk.language"
+	statusCodeKey              = "otel.status_code"
+	statusDescriptionKey       = "otel.status_description"
+	spanKindKey                = "span.kind"
+	serviceNameKey             = "service.name"
 )
 
 // TODO (MrAlias): unify this with the traceTransformer when the metric data
@@ -49,9 +50,14 @@ type metricTransformer struct {
 	DeltaCalculator *cumulative.DeltaCalculator
 	ServiceName     string
 	Resource        *resourcepb.Resource
+	Language        string
 }
 
 type traceTransformer struct {
+	ResourceAttributes map[string]interface{}
+}
+
+type logTransformer struct {
 	ResourceAttributes map[string]interface{}
 }
 
@@ -69,6 +75,22 @@ func newTraceTransformer(resource pdata.Resource, lib pdata.InstrumentationLibra
 		}
 	}
 	return t
+}
+
+func newLogTransformer(resource pdata.Resource, instrumentationLibrary pdata.InstrumentationLibrary) *logTransformer {
+	l := &logTransformer{
+		ResourceAttributes: tracetranslator.AttributeMapToMap(
+			resource.Attributes(),
+		),
+	}
+
+	if n := instrumentationLibrary.Name(); n != "" {
+		l.ResourceAttributes[instrumentationNameKey] = n
+		if v := instrumentationLibrary.Version(); v != "" {
+			l.ResourceAttributes[instrumentationVersionKey] = v
+		}
+	}
+	return l
 }
 
 var (
@@ -98,6 +120,42 @@ func (t *traceTransformer) Span(span pdata.Span) (telemetry.Span, error) {
 	}
 
 	return sp, nil
+}
+
+func (t *logTransformer) Log(log pdata.LogRecord) (telemetry.Log, error) {
+	var message string
+
+	if bodyString := log.Body().StringVal(); bodyString != "" {
+		message = bodyString
+	} else {
+		message = log.Name()
+	}
+
+	attributes := tracetranslator.AttributeMapToMap(log.Attributes())
+
+	for k, v := range t.ResourceAttributes {
+		attributes[k] = v
+	}
+
+	attributes["name"] = log.Name()
+
+	if !log.TraceID().IsEmpty() {
+		attributes["trace.id"] = log.TraceID().HexString()
+	}
+
+	if !log.SpanID().IsEmpty() {
+		attributes["span.id"] = log.SpanID().HexString()
+	}
+
+	if log.SeverityText() != "" {
+		attributes["log.level"] = log.SeverityText()
+	}
+
+	return telemetry.Log{
+		Message:    message,
+		Timestamp:  log.Timestamp().AsTime(),
+		Attributes: attributes,
+	}, nil
 }
 
 func (t *traceTransformer) SpanAttributes(span pdata.Span) map[string]interface{} {
@@ -256,8 +314,13 @@ func (t *metricTransformer) MetricAttributes(metric *metricspb.Metric) map[strin
 
 	attrs[collectorNameKey] = name
 	attrs[collectorVersionKey] = version
+
 	if t.ServiceName != "" {
 		attrs[serviceNameKey] = t.ServiceName
+	}
+
+	if t.Language != "" {
+		attrs[instrumentationLanguageKey] = t.Language
 	}
 
 	return attrs
