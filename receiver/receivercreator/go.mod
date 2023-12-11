@@ -16,7 +16,7 @@ require (
 	go.opentelemetry.io/collector/otelcol v0.90.2-0.20231208183206-eed3b4e9c5ef
 	go.opentelemetry.io/collector/pdata v1.0.1-0.20231208183206-eed3b4e9c5ef
 	go.opentelemetry.io/collector/receiver v0.90.2-0.20231208183206-eed3b4e9c5ef
-	go.opentelemetry.io/collector/semconv v0.90.2-0.20231208183206-eed3b4e9c5ef
+	go.opentelemetry.io/collector/semconv v0.91.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.26.0
 )
